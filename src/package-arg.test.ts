@@ -3,38 +3,37 @@ import { describe, it } from 'mocha';
 import realNpa from 'npm-package-arg';
 import { parsePackageArg } from './package-arg';
 
-describe('parsePackageArg npa parity', () => {
+describe('parsePackageArg', () => {
   it('parses registry specs', () => {
-    expect(parsePackageArg('vite')).toHaveSubset({
+    expect(parsePackageArg('foxts')).toHaveSubset({
       type: 'range',
-      registry: true,
-      name: 'vite',
+      name: 'foxts',
       fetchSpec: '*',
-      raw: 'vite'
+      raw: 'foxts'
     });
-    expect(parsePackageArg('vite@2')).toHaveSubset({
+    expect(parsePackageArg('foxts@5')).toHaveSubset({
       type: 'range',
-      name: 'vite',
-      fetchSpec: '2'
+      name: 'foxts',
+      fetchSpec: '5'
     });
-    expect(parsePackageArg('vite@2.9.18')).toHaveSubset({
+    expect(parsePackageArg('foxts@5.8.1')).toHaveSubset({
       type: 'version',
-      fetchSpec: '2.9.18'
+      fetchSpec: '5.8.1'
     });
-    expect(parsePackageArg('vite@=7.0.3')).toHaveSubset({
+    expect(parsePackageArg('foxts@=5.8.1')).toHaveSubset({
       type: 'version',
-      fetchSpec: '=7.0.3'
+      fetchSpec: '=5.8.1'
     });
-    expect(parsePackageArg('vite@latest')).toHaveSubset({
+    expect(parsePackageArg('foxts@latest')).toHaveSubset({
       type: 'tag',
       fetchSpec: 'latest'
     });
-    expect(parsePackageArg('vite@>=2.0.0 <3.0.0')).toHaveSubset({
+    expect(parsePackageArg('foxts@>=5.0.0 <6.0.0')).toHaveSubset({
       type: 'range',
-      fetchSpec: '>=2.0.0 <3.0.0'
+      fetchSpec: '>=5.0.0 <6.0.0'
     });
     // trailing empty spec means any version
-    expect(parsePackageArg('vite@')).toHaveSubset({
+    expect(parsePackageArg('foxts@')).toHaveSubset({
       type: 'range',
       fetchSpec: '*'
     });
@@ -58,7 +57,6 @@ describe('parsePackageArg npa parity', () => {
   it('keeps npa quirks for names that are only valid as legacy packages', () => {
     expect(parsePackageArg('name!!')).toHaveSubset({
       type: 'range',
-      registry: true,
       name: 'name!!'
     });
   });
@@ -89,73 +87,43 @@ describe('parsePackageArg npa parity', () => {
     });
   });
 
-  it('classifies non-registry specs so handlers can reject them', () => {
-    expect(parsePackageArg('github:antfu/utils')).toHaveSubset({
-      type: 'git',
-      name: null,
-      registry: false
-    });
-    expect(parsePackageArg('antfu/utils')).toHaveSubset({
-      type: 'git',
-      name: null
-    });
-    expect(parsePackageArg('git@github.com:antfu/utils.git')).toHaveSubset({
-      type: 'git',
-      name: null
-    });
-    expect(parsePackageArg('git+https://github.com/antfu/utils.git')).toHaveSubset({
-      type: 'git'
-    });
-    expect(parsePackageArg('https://example.com/package.tgz')).toHaveSubset({
-      type: 'remote',
-      name: null
-    });
-    expect(parsePackageArg('./local/dir')).toHaveSubset({
-      type: 'directory',
-      name: null
-    });
-    expect(parsePackageArg('package.tgz')).toHaveSubset({
-      type: 'file',
-      name: null
-    });
-    expect(parsePackageArg('pkg@npm:vite@^5.0.0')).toHaveSubset({
-      type: 'alias',
-      registry: true,
-      name: 'pkg'
-    });
-    expect(parsePackageArg('pkg@npm:vite@^5.0.0').subSpec!).toHaveSubset({
-      type: 'range',
-      name: 'vite',
-      fetchSpec: '^5.0.0'
-    });
+  it('rejects non-registry specs outright', () => {
+    expect(() => parsePackageArg('github:antfu/utils')).toThrow('Unsupported url package spec "github:antfu/utils".');
+    expect(() => parsePackageArg('git+https://github.com/antfu/utils.git')).toThrow('Unsupported url package spec');
+    expect(() => parsePackageArg('git@github.com:antfu/utils.git')).toThrow('Unsupported git package spec');
+    expect(() => parsePackageArg('./local/dir')).toThrow('Unsupported local path package spec');
+    expect(() => parsePackageArg('~/foo/bar')).toThrow('Unsupported local path package spec');
+    expect(() => parsePackageArg('antfu/utils')).toThrow('Unsupported local path package spec');
+    expect(() => parsePackageArg('file:./foo')).toThrow('Unsupported file package spec');
+    expect(() => parsePackageArg('npm:foxts@5')).toThrow('Unsupported npm alias package spec');
+    // ...including when they hide in the version part
+    expect(() => parsePackageArg('pkg@npm:foxts@5')).toThrow('Unsupported npm alias package spec "npm:foxts@5".');
+    expect(() => parsePackageArg('pkg@file:./foo')).toThrow('Unsupported file package spec');
+    expect(() => parsePackageArg('pkg@https://example.com/x.tgz')).toThrow('Unsupported url package spec');
+    expect(() => parsePackageArg('pkg@~/foo/bar')).toThrow('Unsupported local path package spec');
   });
 
-  it('rejects invalid aliases and URL types with npa messages', () => {
-    expect(() => parsePackageArg('pkg@npm:npm:vite')).toThrow('nested aliases not supported');
-    expect(() => parsePackageArg('pkg@npm:github:antfu/utils')).toThrow('aliases only work for registry deps');
-    expect(() => parsePackageArg('pkg@npm:<3.0.0')).toThrow('aliases must have a name');
-    expect(() => parsePackageArg('pkg@foo://bar')).toThrow('Unsupported URL Type "foo:": foo://bar');
+  it('rejects empty and malformed scoped specs', () => {
+    expect(() => parsePackageArg('   ')).toThrow('Package spec must be a non-empty string.');
+    expect(() => parsePackageArg('@scope')).toThrow('Invalid scoped package spec "@scope".');
+    expect(() => parsePackageArg('@scope/')).toThrow('Invalid scoped package spec "@scope/".');
   });
 
   // differential check against the real npm-package-arg (devDependency only —
-  // the production bundle uses parsePackageArg to stay free of Node builtins)
-  describe('differential against npm-package-arg', () => {
+  // the production bundle uses parsePackageArg to stay free of Node builtins).
+  // Only registry specs are compared: non-registry specs are intentionally
+  // rejected with our own errors instead of npa's type classification.
+  describe('differential against npm-package-arg (registry specs)', () => {
     const SPECS = [
-      'vite', 'vite@2', 'vite@2.9.18', 'vite@=7.0.3', 'vite@v5.0.0', 'vite@latest', 'vite@',
-      'vite@^5.0.0-beta.0', 'vite@>=2.0.0 <3.0.0', 'vite@5.0 - 5.4', 'vite@2.x',
-      'vite@~3.6', 'vite@*', 'vite@next',
-      '@antfu/utils', '@antfu/utils@^1.0.0', '@antfu/utils@latest', '@antfu/utils@1.0.0-beta.1+build',
+      'foxts', 'foxts@5', 'foxts@5.8.1', 'foxts@=5.8.1', 'foxts@v5.8.1', 'foxts@latest', 'foxts@',
+      'foxts@^5.0.0-beta.0', 'foxts@>=5.0.0 <6.0.0', 'foxts@5.0 - 5.4', 'foxts@5.x',
+      'foxts@~5.8', 'foxts@*', 'foxts@next', 'foxts@1 || 2',
+      '@antfu/utils', '@antfu/utils@^1.0.0', '@antfu/utils@latest',
       'name!!', 'under_score', 'dot.name', 'name-with-dash', '123numeric',
-      '<3.0.0', '-', '=', '^', '1.2.3', '8.4.31+react@18.2.0',
-      'postcss@8.4.31+react@18.2.0', '.hidden@1.0.0', '_private@1.0.0',
-      'in valid@1.0.0', 'UPPERCASE@1.0.0', 'node_modules@1.0.0', 'favicon.ico',
-      'pkg@npm:vite@^5.0.0', 'pkg@npm:npm:vite', 'pkg@npm:<3.0.0',
-      'github:antfu/utils', 'antfu/utils', 'antfu/utils#main',
-      'git@github.com:antfu/utils.git', 'git+https://github.com/antfu/utils.git',
-      'git+ssh://git@github.com:antfu/utils.git#semver:^1.0.0',
-      'https://example.com/package.tgz', 'pkg@foo://bar',
-      'package.tgz', 'pkg@file:./foo', 'pkg@~/foo/bar',
-      '@scope/pkg@npm:other@1 || 2'
+      '<3.0.0', '-', '=', '1.2.3', 'favicon.ico',
+      'postcss@8.4.31+react@18.2.0', '8.4.31+react@18.2.0',
+      '.hidden@1.0.0', '_private@1.0.0', 'in valid@1.0.0',
+      'UPPERCASE@1.0.0', 'node_modules@1.0.0'
     ];
 
     for (const spec of SPECS) {
@@ -174,16 +142,11 @@ describe('parsePackageArg npa parity', () => {
         }
 
         const actual = parsePackageArg(spec);
-        expect(actual.type).toEqual(expected!.type);
+        expect<string>(actual.type).toEqual(expected!.type);
         expect(actual.name).toEqual(expected!.name ?? null);
-        // npa's types claim `registry` is boolean, but at runtime it is
-        // undefined for non-registry spec types
-        expect(actual.registry).toEqual((expected as { registry?: boolean }).registry ?? false);
-        if (expected!.registry) {
-          expect(actual.fetchSpec).toEqual(expected!.fetchSpec);
-          expect(actual.escapedName).toEqual(expected!.escapedName ?? null);
-          expect(actual.scope).toEqual(expected!.scope ?? null);
-        }
+        expect<string | null>(actual.fetchSpec).toEqual(expected!.fetchSpec);
+        expect(actual.escapedName).toEqual(expected!.escapedName ?? null);
+        expect(actual.scope).toEqual(expected!.scope ?? null);
       });
     }
   });

@@ -18,6 +18,7 @@
     "foxts": "^5.8.1",
     "lemmih": "^0.0.4",
     "ufo": "^1.6.4",
+    "validate-npm-package-name": "^8.0.0",
     "verkit": "^0.3.1"
   },
   "devDependencies": {
@@ -32,6 +33,7 @@
     "@types/node": "^24.13.3",
     "@types/npm-package-arg": "^6.1.4",
     "@types/semver": "^7.7.1",
+    "@types/validate-npm-package-name": "^4.0.2",
     "earl": "^2.0.0",
     "eslint": "^10.8.0",
     "eslint-config-sukka": "^8.14.2",

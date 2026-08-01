@@ -22,7 +22,7 @@ export async function resolvePackageVersion(
   fetchManifest: FetchPackageManifest
 ): Promise<ResolvedPackageVersion | ResolvedPackageVersionWithMetadata> {
   const manifest = await fetchManifest(spec.name!, Boolean(query.force));
-  const fetchSpec = spec.fetchSpec!;
+  const fetchSpec = spec.fetchSpec;
 
   let version: string | null = null;
   let specifier: string;
@@ -53,7 +53,8 @@ export async function resolvePackageVersion(
         version = candidate;
       }
     }
-  } else if (spec.type === 'version') {
+  } else {
+    // spec.type === 'version' — parsePackageArg only produces tag/range/version
     version = clean(fetchSpec, { loose: true });
     specifier = fetchSpec;
 
@@ -63,8 +64,6 @@ export async function resolvePackageVersion(
         { status: 404 }
       );
     }
-  } else {
-    throw new Error(`Unsupported spec: ${JSON.stringify(spec)}`);
   }
 
   const metadata = version
@@ -91,7 +90,7 @@ export async function getPackageVersions(
   fetchManifest: FetchPackageManifest
 ): Promise<PackageVersionsInfo | PackageVersionsInfoWithMetadata> {
   const manifest = await fetchManifest(spec.name!, Boolean(query.force));
-  const fetchSpec = spec.fetchSpec!;
+  const fetchSpec = spec.fetchSpec;
   let versions = Object.keys(manifest.versionsMeta);
 
   if (fetchSpec !== '*' && spec.type === 'range') {
