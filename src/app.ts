@@ -21,8 +21,7 @@ import type { FetchPackageManifest } from './types';
 export interface AppOptions {
   deployRevision?: string,
   deployTime?: string,
-  fetchManifest?: FetchPackageManifest,
-  repositoryUrl?: string
+  fetchManifest?: FetchPackageManifest
 }
 
 // mirrors the h3/nitro error JSON shape the official fast-npm-meta client
@@ -70,7 +69,6 @@ export function createApp(options: AppOptions = {}): App {
   const fetchManifest = options.fetchManifest ?? fetchPackageManifest;
   const deployTime = options.deployTime ?? new Date().toISOString();
   const deployRevision = options.deployRevision ?? 'development';
-  const repositoryUrl = options.repositoryUrl ?? REPOSITORY_URL;
 
   // semver-valid prerelease version carrying the deploy identity instead of
   // a meaningless package.json version, e.g. 0.0.0-latest-0b8d1d7-20260731
@@ -94,9 +92,9 @@ export function createApp(options: AppOptions = {}): App {
     .route('/', () => res.json({
       name: SERVICE_NAME,
       version,
-      docs: repositoryUrl,
+      docs: REPOSITORY_URL,
       deployTime,
-      deployRevision: `${repositoryUrl}/commit/${deployRevision}`
+      deployRevision: `${REPOSITORY_URL}/commit/${deployRevision}`
     }))
     .route('/versions/*', packagesRoute(
       '/versions/',

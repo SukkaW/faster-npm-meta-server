@@ -19,7 +19,7 @@ import type {
 
 interface PackumentVersion {
   name: string,
-  engines: Record<string, string>,
+  engines?: Record<string, string>,
   deprecated?: string,
   dist?: {
     attestations?: {
@@ -61,16 +61,8 @@ interface CloudflareRequestInit extends RequestInit<RequestInitCfProperties> {
   cache?: RequestCache
 }
 
-export interface ManifestFetcherOptions {
-  fetch?: typeof fetch,
-  now?: () => number
-}
-
-export function createManifestFetcher(
-  options: ManifestFetcherOptions = {}
-): FetchPackageManifest {
-  const fetchImpl = options.fetch ?? fetch;
-  const now = options.now ?? Date.now;
+/** Each fetcher owns its own caches; the server uses the shared one below. */
+export function createManifestFetcher(): FetchPackageManifest {
   const manifestCache = flru<ManifestCacheEntry>(MANIFEST_CACHE_MAX);
   const promiseCache = new Map<string, Promise<PackageManifest>>();
 
@@ -86,7 +78,7 @@ export function createManifestFetcher(
     const storedData = manifestCache.get(name);
     if (storedData) {
       const timeout = force ? FORCE_CACHE_TTL : MANIFEST_CACHE_TTL;
-      if (storedData.lastSynced + timeout > now()) {
+      if (storedData.lastSynced + timeout > Date.now()) {
         if ('error' in storedData) {
           throw new Error(storedData.error);
         }
@@ -94,7 +86,7 @@ export function createManifestFetcher(
       }
     }
 
-    const promise = fetchAndProjectPackument(fetchImpl, name, force, now)
+    const promise = fetchAndProjectPackument(name, force)
       .then((manifest) => {
         manifestCache.set(name, manifest);
         return manifest;
@@ -102,7 +94,7 @@ export function createManifestFetcher(
       .catch((error: unknown) => {
         const data: PackageManifestError = {
           ...toPackageError(error, name),
-          lastSynced: now()
+          lastSynced: Date.now()
         };
         manifestCache.set(name, data);
         throw error;
@@ -123,27 +115,24 @@ export const fetchPackageManifest = createManifestFetcher();
 const RETRYABLE_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
 async function fetchWithSingleRetry(
-  fetchImpl: typeof fetch,
   url: string,
   init: CloudflareRequestInit
 ): Promise<Response> {
   let response: Response | undefined;
   try {
-    response = await fetchImpl(url, init);
+    response = await fetch(url, init);
   } catch {
     // network error, fall through to the retry
   }
   if (response && !RETRYABLE_STATUS_CODES.has(response.status)) {
     return response;
   }
-  return fetchImpl(url, init);
+  return fetch(url, init);
 }
 
 async function fetchAndProjectPackument(
-  fetchImpl: typeof fetch,
   name: string,
-  force: boolean,
-  now: () => number
+  force: boolean
 ): Promise<PackageManifest> {
   console.log('Fetching package:', name); // eslint-disable-line no-console -- logging to cloudflare workers console
 
@@ -164,7 +153,7 @@ async function fetchAndProjectPackument(
     init.cache = 'no-store';
   }
 
-  const response = await fetchWithSingleRetry(fetchImpl, url, init);
+  const response = await fetchWithSingleRetry(url, init);
   if (!response.ok) {
     throw new HttpError(
       `[GET] "${url}": ${response.status} ${response.statusText}`,
@@ -184,7 +173,7 @@ async function fetchAndProjectPackument(
     ),
     timeCreated: packument.time.created,
     timeModified: packument.time.modified,
-    lastSynced: now()
+    lastSynced: Date.now()
   };
 }
 
@@ -197,7 +186,6 @@ function createPackageVersionMeta(
     time: packument.time[version]
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mirror upstream runtime guard
   if (data.engines) {
     metadata.engines = data.engines;
   }

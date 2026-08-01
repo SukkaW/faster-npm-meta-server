@@ -1,5 +1,5 @@
 import { expect, mockFn } from 'earl';
-import { describe, it } from 'mocha';
+import { afterEach, describe, it } from 'mocha';
 import { HttpError } from './errors';
 import { createManifestFetcher } from './registry';
 
@@ -11,6 +11,35 @@ type TestFetch = (
   input: RequestInfo | URL,
   init?: TestRequestInit
 ) => Promise<Response>;
+
+const restoreGlobals: Array<() => void> = [];
+
+afterEach(() => {
+  let restore = restoreGlobals.pop();
+  while (restore) {
+    restore();
+    restore = restoreGlobals.pop();
+  }
+});
+
+/** The registry module calls the global `fetch`, so tests swap it out. */
+function stubFetch(implementation: TestFetch) {
+  const mock = mockFn<TestFetch>(implementation);
+  const original = fetch;
+  globalThis.fetch = mock;
+  restoreGlobals.push(() => {
+    globalThis.fetch = original;
+  });
+  return mock;
+}
+
+function stubNow(getTime: () => number): void {
+  const original = Date.now;
+  Date.now = getTime;
+  restoreGlobals.push(() => {
+    Date.now = original;
+  });
+}
 
 function createPackument() {
   return {
@@ -45,11 +74,9 @@ function createPackument() {
 describe('registry manifest fetcher', () => {
   it('preserves upstream freshness while using Cloudflare fetch caching', async () => {
     let currentTime = 1_000_000;
-    const fetchMock = mockFn<TestFetch>(() => Promise.resolve(Response.json(createPackument())));
-    const fetchManifest = createManifestFetcher({
-      fetch: fetchMock as unknown as typeof fetch,
-      now: () => currentTime
-    });
+    stubNow(() => currentTime);
+    const fetchMock = stubFetch(() => Promise.resolve(Response.json(createPackument())));
+    const fetchManifest = createManifestFetcher();
 
     const first = await fetchManifest('fixture');
     const metadata = first.versionsMeta['1.0.0'];
@@ -89,12 +116,10 @@ describe('registry manifest fetcher', () => {
 
   it('deduplicates concurrent registry requests', async () => {
     let resolveResponse: ((response: Response) => void) | undefined;
-    const fetchMock = mockFn<TestFetch>(() => new Promise<Response>((resolve) => {
+    const fetchMock = stubFetch(() => new Promise<Response>((resolve) => {
       resolveResponse = resolve;
     }));
-    const fetchManifest = createManifestFetcher({
-      fetch: fetchMock as unknown as typeof fetch
-    });
+    const fetchManifest = createManifestFetcher();
 
     const first = fetchManifest('fixture');
     const second = fetchManifest('fixture');
@@ -106,7 +131,7 @@ describe('registry manifest fetcher', () => {
 
   it('retries once on transient failures like upstream ofetch', async () => {
     let attempts = 0;
-    const fetchMock = mockFn<TestFetch>(() => {
+    const fetchMock = stubFetch(() => {
       attempts++;
       if (attempts === 1) {
         return Promise.resolve(new Response(null, {
@@ -116,9 +141,7 @@ describe('registry manifest fetcher', () => {
       }
       return Promise.resolve(Response.json(createPackument()));
     });
-    const fetchManifest = createManifestFetcher({
-      fetch: fetchMock as unknown as typeof fetch
-    });
+    const fetchManifest = createManifestFetcher();
 
     const manifest = await fetchManifest('fixture');
     expect(manifest.name).toEqual('fixture');
@@ -127,16 +150,14 @@ describe('registry manifest fetcher', () => {
 
   it('retries once on network errors like upstream ofetch', async () => {
     let attempts = 0;
-    const fetchMock = mockFn<TestFetch>(() => {
+    const fetchMock = stubFetch(() => {
       attempts++;
       if (attempts === 1) {
         return Promise.reject(new TypeError('fetch failed'));
       }
       return Promise.resolve(Response.json(createPackument()));
     });
-    const fetchManifest = createManifestFetcher({
-      fetch: fetchMock as unknown as typeof fetch
-    });
+    const fetchManifest = createManifestFetcher();
 
     const manifest = await fetchManifest('fixture');
     expect(manifest.name).toEqual('fixture');
@@ -144,13 +165,11 @@ describe('registry manifest fetcher', () => {
   });
 
   it('preserves upstream cached-error behavior', async () => {
-    const fetchMock = mockFn<TestFetch>(() => Promise.resolve(new Response(null, {
+    const fetchMock = stubFetch(() => Promise.resolve(new Response(null, {
       status: 404,
       statusText: 'Not Found'
     })));
-    const fetchManifest = createManifestFetcher({
-      fetch: fetchMock as unknown as typeof fetch
-    });
+    const fetchManifest = createManifestFetcher();
 
     const firstError = await captureError(fetchManifest('missing'));
     const secondError = await captureError(fetchManifest('missing'));
