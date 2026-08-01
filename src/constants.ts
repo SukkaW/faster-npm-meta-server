@@ -1,4 +1,4 @@
-export const SERVICE_NAME = 'fast-npm-meta';
+export const SERVICE_NAME = 'faster-npm-meta-server';
 export const REPOSITORY_URL = 'https://github.com/SukkaW/faster-npm-meta-server';
 
 export const REGISTRY_URL = 'https://registry.npmjs.org/';
