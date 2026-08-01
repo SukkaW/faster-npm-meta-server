@@ -1,5 +1,6 @@
 import { expect, mockFn } from 'earl';
 import { afterEach, describe, it } from 'mocha';
+import sinon from 'sinon';
 import { HttpError } from './errors';
 import { createManifestFetcher } from './registry';
 
@@ -12,33 +13,19 @@ type TestFetch = (
   init?: TestRequestInit
 ) => Promise<Response>;
 
-const restoreGlobals: Array<() => void> = [];
-
 afterEach(() => {
-  let restore = restoreGlobals.pop();
-  while (restore) {
-    restore();
-    restore = restoreGlobals.pop();
-  }
+  sinon.restore();
 });
 
-/** The registry module calls the global `fetch`, so tests swap it out. */
+/**
+ * The registry module calls the global `fetch`, so tests swap it out. sinon
+ * owns the replace/restore lifecycle; earl still owns the mock and its
+ * assertions.
+ */
 function stubFetch(implementation: TestFetch) {
   const mock = mockFn<TestFetch>(implementation);
-  const original = fetch;
-  globalThis.fetch = mock;
-  restoreGlobals.push(() => {
-    globalThis.fetch = original;
-  });
+  sinon.replace(globalThis, 'fetch', mock);
   return mock;
-}
-
-function stubNow(getTime: () => number): void {
-  const original = Date.now;
-  Date.now = getTime;
-  restoreGlobals.push(() => {
-    Date.now = original;
-  });
 }
 
 function createPackument() {
@@ -73,8 +60,9 @@ function createPackument() {
 
 describe('registry manifest fetcher', () => {
   it('preserves upstream freshness while using Cloudflare fetch caching', async () => {
-    let currentTime = 1_000_000;
-    stubNow(() => currentTime);
+    // only `Date` is faked — the cache compares timestamps, and faking timers
+    // would interfere with the awaited promises below
+    const clock = sinon.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
     const fetchMock = stubFetch(() => Promise.resolve(Response.json(createPackument())));
     const fetchManifest = createManifestFetcher();
 
@@ -89,11 +77,12 @@ describe('registry manifest fetcher', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await fetchManifest('fixture');
-    currentTime += 10000;
+    clock.tick(10000);
     await fetchManifest('fixture', true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    currentTime += 30001;
+    // past the 30s force cache window
+    clock.tick(30001);
     await fetchManifest('fixture', true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
