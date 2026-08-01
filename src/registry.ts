@@ -165,11 +165,12 @@ async function fetchAndProjectPackument(
   return {
     name: packument.name,
     distTags: packument['dist-tags'],
-    versionsMeta: Object.fromEntries(
-      Object.entries(packument.versions).map(([version, data]) => [
-        version,
-        createPackageVersionMeta(packument, version, data)
-      ])
+    versionsMeta: Object.entries(packument.versions).reduce<Record<string, PackageVersionMeta>>(
+      (accumulator, [version, data]) => {
+        accumulator[version] = createPackageVersionMeta(packument, version, data);
+        return accumulator;
+      },
+      {}
     ),
     timeCreated: packument.time.created,
     timeModified: packument.time.modified,

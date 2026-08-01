@@ -126,7 +126,8 @@ describe('parsePackageArg', () => {
       'UPPERCASE@1.0.0', 'node_modules@1.0.0'
     ];
 
-    for (const spec of SPECS) {
+    for (let i = 0, len = SPECS.length; i < len; i++) {
+      const spec = SPECS[i];
       it(`matches npa for ${JSON.stringify(spec)}`, () => {
         let expected: ReturnType<typeof realNpa> | undefined;
         let expectedError: unknown;

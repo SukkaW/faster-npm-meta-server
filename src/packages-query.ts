@@ -28,7 +28,7 @@ export async function handlePackagesQuery<T extends object>(
   ).replaceAll(' ', '+');
   const encodedSpecs = normalizedRaw.split('+');
   const specs: string[] = [];
-  for (let index = 0; index < encodedSpecs.length; index++) {
+  for (let index = 0, len = encodedSpecs.length; index < len; index++) {
     const spec = decodeURIComponent(encodedSpecs[index]);
     if (spec) {
       specs.push(spec);
@@ -39,7 +39,7 @@ export async function handlePackagesQuery<T extends object>(
   const results: Array<MaybeError<T> | undefined> = [];
   results.length = specs.length;
 
-  for (let index = 0; index < specs.length; index++) {
+  for (let index = 0, len = specs.length; index < len; index++) {
     const rawSpec = specs[index];
     let parsedSpec: ParsedSpec;
     try {
@@ -73,7 +73,7 @@ export async function handlePackagesQuery<T extends object>(
     const promises: Array<Promise<void>> = [];
     promises.length = validSpecs.length;
 
-    for (let index = 0; index < validSpecs.length; index++) {
+    for (let index = 0, len = validSpecs.length; index < len; index++) {
       const [resultIndex, parsedSpec] = validSpecs[index];
       promises[index] = (async () => {
         await handler(parsedSpec, query)
@@ -90,7 +90,7 @@ export async function handlePackagesQuery<T extends object>(
   }
 
   if (throwError) {
-    for (let index = 0; index < results.length; index++) {
+    for (let index = 0, len = results.length; index < len; index++) {
       const result = results[index];
       if (result && isPackageError(result)) {
         throwPackageError(result);

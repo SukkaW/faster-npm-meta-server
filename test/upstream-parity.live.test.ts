@@ -42,7 +42,8 @@ const LIVE = process.env.LIVE_PARITY === '1'
 
     const app = createApp();
 
-    for (const path of CASES) {
+    for (let i = 0, len = CASES.length; i < len; i++) {
+      const path = CASES[i];
       it(`matches upstream for ${path}`, async () => {
         const [local, upstream] = await Promise.all([
           app.fetch(new Request(`http://localhost${path}`)),

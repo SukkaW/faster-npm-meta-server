@@ -10,6 +10,7 @@ import { HttpError } from './errors';
 import type {
   FetchPackageManifest,
   PackageManifest,
+  PackageVersionMeta,
   PackageVersionsInfo,
   PackageVersionsInfoWithMetadata,
   ResolvedPackageVersion,
@@ -44,7 +45,7 @@ export async function resolvePackageVersion(
     }
 
     const versions = Object.keys(manifest.versionsMeta);
-    for (let index = 0; index < versions.length; index++) {
+    for (let index = 0, len = versions.length; index < len; index++) {
       const candidate = versions[index];
       if (
         satisfies(candidate, fetchSpec)
@@ -132,8 +133,12 @@ export async function getPackageVersions(
       lastSynced: manifest.lastSynced,
       timeCreated: manifest.timeCreated,
       timeModified: manifest.timeModified,
-      versionsMeta: Object.fromEntries(
-        versions.map(version => [version, manifest.versionsMeta[version]])
+      versionsMeta: versions.reduce<Record<string, PackageVersionMeta>>(
+        (accumulator, version) => {
+          accumulator[version] = manifest.versionsMeta[version];
+          return accumulator;
+        },
+        {}
       )
     };
   }
@@ -145,10 +150,15 @@ export async function getPackageVersions(
     lastSynced: manifest.lastSynced,
     versions,
     time: {
-      ...Object.fromEntries(
+      ...versions.reduce<Record<string, string>>((accumulator, version) => {
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mirror upstream runtime guard
-        versions.map(version => [version, manifest.versionsMeta[version]?.time])
-      ),
+        const publishedAt = manifest.versionsMeta[version]?.time;
+        // upstream emits `undefined` here, which JSON.stringify drops anyway
+        if (publishedAt !== undefined) {
+          accumulator[version] = publishedAt;
+        }
+        return accumulator;
+      }, {}),
       created: manifest.timeCreated,
       modified: manifest.timeModified
     }
