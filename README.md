@@ -87,7 +87,7 @@ API design, response shapes, and the original implementation are from [antfu/fas
 
 ----
 
-**faster-npm-meta-server** © [Sukka](https://github.com/SukkaW).
+**faster-npm-meta-server** © [Sukka](https://github.com/SukkaW), Released under the [MIT](./LICENSE) License.
 Authored and maintained by Sukka with help from contributors ([list](https://github.com/SukkaW/faster-npm-meta-server/graphs/contributors)).
 
 > [Personal Website](https://skk.moe) · [Blog](https://blog.skk.moe) · GitHub [@SukkaW](https://github.com/SukkaW) · Telegram Channel [@SukkaChannel](https://t.me/SukkaChannel) · Mastodon [@sukka@acg.mn](https://acg.mn/@sukka) · Twitter [@isukkaw](https://twitter.com/isukkaw) · BlueSky [@skk.moe](https://bsky.app/profile/skk.moe)
