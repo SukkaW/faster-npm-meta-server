@@ -2,7 +2,7 @@ export const SERVICE_NAME = 'fast-npm-meta';
 export const REPOSITORY_URL = 'https://github.com/SukkaW/faster-npm-meta-server';
 
 export const REGISTRY_URL = 'https://registry.npmjs.org/';
-export const REGISTRY_USER_AGENT = 'get-npm-meta';
+export const REGISTRY_USER_AGENT = 'faster-npm-meta-server (https://github.com/SukkaW/faster-npm-meta-server)';
 
 export const MANIFEST_CACHE_MAX = 10000;
 export const MANIFEST_CACHE_TTL = 15 * 60 * 1000;
