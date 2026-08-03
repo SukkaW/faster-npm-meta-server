@@ -51,5 +51,5 @@
     "wrangler": "^4.118.0",
     "xbits": "^0.2.0"
   },
-  "packageManager": "pnpm@11.18.0"
+  "packageManager": "pnpm@11.20.0"
 }
