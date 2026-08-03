@@ -4,6 +4,12 @@ import { App, res } from 'lemmih';
 import { cors } from 'lemmih/cors';
 import { parseQuery } from 'ufo';
 import {
+  CACHEABLE_INDEX,
+  cacheControlForErrorStatus,
+  cacheControlForResults,
+  NO_STORE
+} from './cache-control';
+import {
   REPOSITORY_URL,
   SERVICE_NAME
 } from './constants';
@@ -31,13 +37,19 @@ const errorLayer: Layer = async (request, next) => {
     return await next(request);
   } catch (error) {
     if (error instanceof HttpError) {
+      const status = toErrorResponseStatus(error.status);
       return res.json({
         error: true,
         url: request.url,
         statusCode: error.status,
         statusMessage: 'Server Error',
         message: error.message
-      }, { status: toErrorResponseStatus(error.status) });
+      }, {
+        status,
+        headers: {
+          'cache-control': cacheControlForErrorStatus(isForced(request), status)
+        }
+      });
     }
 
     console.error(error); // eslint-disable-line no-console -- logging to cloudflare workers console
@@ -47,9 +59,16 @@ const errorLayer: Layer = async (request, next) => {
       statusCode: 500,
       statusMessage: 'Server Error',
       message: 'Server Error'
-    }, { status: 500 });
+    }, {
+      status: 500,
+      headers: { 'cache-control': NO_STORE }
+    });
   }
 };
+
+function isForced(request: Request): boolean {
+  return Boolean(parseQuery(new URL(request.url).search).force);
+}
 
 function packagesRoute(
   prefix: string,
@@ -57,11 +76,17 @@ function packagesRoute(
 ): Handler<Record<never, never>> {
   return async (request) => {
     const url = new URL(request.url);
-    return res.json(await handlePackagesQuery(
+    const query = parseQuery(url.search);
+    const results = await handlePackagesQuery(
       url.pathname.slice(prefix.length),
-      parseQuery(url.search),
+      query,
       handler
-    ));
+    );
+    return res.json(results, {
+      headers: {
+        'cache-control': cacheControlForResults(Boolean(query.force), results)
+      }
+    });
   };
 }
 
@@ -95,6 +120,8 @@ export function createApp(options: AppOptions = {}): App {
       docs: REPOSITORY_URL,
       deployTime,
       deployRevision: `${REPOSITORY_URL}/commit/${deployRevision}`
+    }, {
+      headers: { 'cache-control': CACHEABLE_INDEX }
     }))
     .route('/versions/*', packagesRoute(
       '/versions/',

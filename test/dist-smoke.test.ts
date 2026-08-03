@@ -4,6 +4,8 @@ import path from 'node:path';
 import { expect } from 'earl';
 import { Miniflare, Response as MiniflareResponse } from 'miniflare';
 import { after, before, describe, it } from 'mocha';
+import { CACHEABLE, NO_STORE } from '../src/cache-control';
+import { SERVICE_NAME } from '../src/constants';
 
 /**
  * Boots the built dist/snippet.js in workerd (via miniflare) with the npm
@@ -66,7 +68,7 @@ describe('built worker bundle in workerd', function () {
   it('boots and serves the root route', async () => {
     const response = await mf.dispatchFetch('http://localhost/');
     expect(response.status).toEqual(200);
-    expect(await response.json() as object).toHaveSubset({ name: 'fast-npm-meta' });
+    expect(await response.json() as object).toHaveSubset({ name: SERVICE_NAME });
   });
 
   it('resolves packages through the real bundle', async () => {
@@ -77,6 +79,8 @@ describe('built worker bundle in workerd', function () {
       specifier: '^1.0.0',
       version: '1.0.0'
     });
+    // the CDN in front of the Worker only caches with an explicit Cache-Control
+    expect(response.headers.get('cache-control')).toEqual(CACHEABLE);
   });
 
   it('supports force=true (fetch cache mode must be valid in workerd)', async () => {
@@ -86,6 +90,7 @@ describe('built worker bundle in workerd', function () {
       name: 'fixture',
       version: '2.0.0'
     });
+    expect(response.headers.get('cache-control')).toEqual(NO_STORE);
   });
 
   it('returns upstream-shaped errors', async () => {

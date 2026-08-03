@@ -2,7 +2,13 @@ import type { App } from 'lemmih';
 import { expect, mockFn } from 'earl';
 import { describe, it } from 'mocha';
 import { createApp } from './app';
-import { REPOSITORY_URL } from './constants';
+import {
+  CACHEABLE,
+  CACHEABLE_ERROR,
+  CACHEABLE_INDEX,
+  NO_STORE
+} from './cache-control';
+import { REPOSITORY_URL, SERVICE_NAME } from './constants';
 import { HttpError } from './errors';
 import type {
   FetchPackageManifest,
@@ -79,7 +85,7 @@ describe('Hono API upstream parity', () => {
 
     expect(response.status).toEqual(200);
     expect(await response.json()).toEqual({
-      name: 'fast-npm-meta',
+      name: SERVICE_NAME,
       version: '0.0.0-latest-test-re-20260731',
       docs: REPOSITORY_URL,
       deployTime: '2026-07-31T00:00:00.000Z',
@@ -87,6 +93,31 @@ describe('Hono API upstream parity', () => {
     });
     expect(response.headers.get('access-control-allow-origin')).toEqual('*');
     expect(response.headers.get('access-control-expose-headers')).toEqual('*');
+    expect(response.headers.get('cache-control')).toEqual(CACHEABLE_INDEX);
+  });
+
+  it('sets an edge-cacheable Cache-Control so a CDN can front the Worker', async () => {
+    const { app } = setup();
+
+    // a plain hit is cacheable for the full manifest TTL
+    expect((await appRequest(app, '/fixture')).headers.get('cache-control'))
+      .toEqual(CACHEABLE);
+    expect((await appRequest(app, '/versions/fixture')).headers.get('cache-control'))
+      .toEqual(CACHEABLE);
+    expect((await appRequest(app, '/full/fixture')).headers.get('cache-control'))
+      .toEqual(CACHEABLE);
+
+    // force must never be stored, or it could not bypass anything
+    expect((await appRequest(app, '/fixture?force=true')).headers.get('cache-control'))
+      .toEqual(NO_STORE);
+
+    // thrown errors and embedded per-package errors both get the short TTL
+    expect((await appRequest(app, '/missing')).headers.get('cache-control'))
+      .toEqual(CACHEABLE_ERROR);
+    expect((await appRequest(app, '/missing?throw=false')).headers.get('cache-control'))
+      .toEqual(CACHEABLE_ERROR);
+    expect((await appRequest(app, '/fixture+missing?throw=false')).headers.get('cache-control'))
+      .toEqual(CACHEABLE_ERROR);
   });
 
   it('resolves latest, ranges, tags, exact versions, and metadata', async () => {

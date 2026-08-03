@@ -1,6 +1,7 @@
 import { expect, mockFn } from 'earl';
 import { afterEach, describe, it } from 'mocha';
 import sinon from 'sinon';
+import { REGISTRY_USER_AGENT } from './constants';
 import { HttpError } from './errors';
 import { createManifestFetcher } from './registry';
 
@@ -100,7 +101,7 @@ describe('registry manifest fetcher', () => {
       }
     });
     expect(forcedInit?.cache).toEqual('no-store');
-    expect(new Headers(firstInit.headers).get('user-agent')).toEqual('get-npm-meta');
+    expect(new Headers(firstInit.headers).get('user-agent')).toEqual(REGISTRY_USER_AGENT);
   });
 
   it('deduplicates concurrent registry requests', async () => {
