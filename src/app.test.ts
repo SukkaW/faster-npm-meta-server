@@ -312,6 +312,48 @@ describe('Hono API upstream parity', () => {
     expect(fetchBackend).toHaveBeenCalledTimes(2);
   });
 
+  it('only delegates multi-package fetches in Adaptive mode', async () => {
+    const fetchManifest = mockFn<FetchPackageManifest>(name => Promise.resolve({
+      ...fixture,
+      name
+    }));
+    const fetchBackend = mockFn<typeof fetch>((_input, init) => {
+      if (typeof init?.body !== 'string') {
+        throw new TypeError('Expected a JSON request body');
+      }
+      const body = JSON.parse(init.body) as { names: string[] };
+      return Promise.resolve(Response.json({
+        results: body.names.map(name => ({
+          name,
+          manifest: { ...fixture, name }
+        }))
+      }));
+    });
+    const app = createApp({
+      mode: AppMode.Adaptive,
+      backends: ['https://fetcher.example/manifests'],
+      fetchManifest,
+      fetch: fetchBackend
+    });
+
+    const single = await appRequest(app, '/fixture');
+    expect(single.status).toEqual(200);
+    expect(fetchManifest).toHaveBeenCalledTimes(1);
+    expect(fetchBackend).not.toHaveBeenCalled();
+
+    const samePackageBatch = await appRequest(app, '/fixture@1+fixture@2');
+    expect(samePackageBatch.status).toEqual(200);
+    expect(await samePackageBatch.json<unknown[]>()).toHaveLength(2);
+    expect(fetchManifest).toHaveBeenCalledTimes(2);
+    expect(fetchBackend).not.toHaveBeenCalled();
+
+    const batch = await appRequest(app, '/fixture+other');
+    expect(batch.status).toEqual(200);
+    expect(await batch.json<unknown[]>()).toHaveLength(2);
+    expect(fetchManifest).toHaveBeenCalledTimes(2);
+    expect(fetchBackend).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps Nitro method-agnostic routes method-agnostic in Hono', async () => {
     const { app } = setup();
     const response = await appRequest(app, '/fixture', {

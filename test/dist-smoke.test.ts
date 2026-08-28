@@ -184,15 +184,14 @@ describe('built worker bundle in workerd', function () {
     expect(result).toHaveSubset({ status: 400 });
   });
 
-  it('delegates a single-package Snippet request in one subrequest', async () => {
+  it('fetches a single-package Snippet request directly', async () => {
     const registryRequests = snippetRegistryRequests;
     const backendRequests = snippetBackendRequests;
     const response = await snippetMf.dispatchFetch('http://localhost/fixture');
 
     expect(response.status).toEqual(200);
-    expect(snippetRegistryRequests).toEqual(registryRequests);
-    expect(snippetBackendRequests).toEqual(backendRequests + 1);
-    expect(snippetBackendAuthorization).toEqual('Bearer test-token');
+    expect(snippetRegistryRequests).toEqual(registryRequests + 1);
+    expect(snippetBackendRequests).toEqual(backendRequests);
   });
 
   it('delegates a multi-package Snippet request in one subrequest', async () => {

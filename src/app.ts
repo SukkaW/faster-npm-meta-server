@@ -20,6 +20,7 @@ import {
   resolvePackageVersion
 } from './handlers';
 import {
+  createAdaptiveManifestBatchFetcher,
   createDelegatedManifestBatchFetcher,
   createLocalManifestBatchFetcher,
   fetchPackageManifests
@@ -38,7 +39,7 @@ export interface AppOptions {
   deployTime?: string,
   /** Defaults to Local, which fans out directly from a Cloudflare Worker. */
   mode?: AppMode,
-  /** Manifest batch endpoint URLs used in Delegate mode. */
+  /** Manifest batch endpoint URLs used in Adaptive and Delegate modes. */
   backends?: readonly string[],
   /** Optional bearer token shared with manifest backends. */
   backendToken?: string,
@@ -53,6 +54,7 @@ export interface AppOptions {
 
 export enum AppMode {
   Local = 'local',
+  Adaptive = 'adaptive',
   Delegate = 'delegate'
 }
 
@@ -175,6 +177,15 @@ export function createApp(options: AppOptions = {}): App {
 }
 
 function createAppManifestFetcher(options: AppOptions): FetchPackageManifests {
+  if (options.mode === AppMode.Adaptive) {
+    return createAdaptiveManifestBatchFetcher({
+      backends: options.backends ?? [],
+      token: options.backendToken,
+      fetch: options.fetch,
+      selectBackend: options.selectBackend,
+      fetchManifest: options.fetchManifest
+    });
+  }
   if (options.mode === AppMode.Delegate) {
     return createDelegatedManifestBatchFetcher({
       backends: options.backends ?? [],

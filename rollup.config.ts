@@ -5,6 +5,7 @@ import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
 import replace from '@rollup/plugin-replace';
 import { analyzer, adapter } from 'vite-bundle-analyzer';
+import { withoutTrailingSlash } from 'ufo';
 import path from 'node:path';
 import { bytes } from 'xbits';
 import type { OutputChunk, RollupOptions } from 'rollup';
@@ -12,14 +13,16 @@ import { execFileSync } from 'node:child_process';
 
 const deployRevision = process.env.GITHUB_SHA || process.env.CF_PAGES_COMMIT_SHA || getGitRevision();
 const deployTime = new Date().toISOString();
-const fetcherBackends: string[] = [];
-const rawFetcherBackends = (process.env.FETCHER_BACKENDS ?? '').split(',');
-for (let index = 0, len = rawFetcherBackends.length; index < len; index++) {
-  const backend = rawFetcherBackends[index].trim();
-  if (backend) {
-    fetcherBackends.push(backend);
-  }
-}
+const fetcherBackends = (process.env.FETCHER_BACKENDS ?? '')
+  .split(',')
+  .reduce<string[]>((backends, value) => {
+    const backend = value.trim();
+    if (backend) {
+      backends.push(withoutTrailingSlash(backend, true));
+    }
+    return backends;
+  }, []);
+
 const fetcherToken = process.env.FETCHER_TOKEN ?? '';
 const buildTarget = process.env.BUILD_TARGET;
 

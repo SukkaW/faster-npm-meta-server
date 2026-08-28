@@ -1,4 +1,5 @@
 import { HttpError, toPackageError } from '../errors';
+import { withoutTrailingSlash } from 'ufo';
 import { fetchPackageManifest } from './registry';
 import type {
   FetchPackageManifest,
@@ -21,6 +22,11 @@ export interface DelegatedManifestFetcherOptions {
   fetch?: typeof fetch,
   /** Override backend selection; defaults to randomized round-robin. */
   selectBackend?: ManifestBackendSelector
+}
+
+export interface AdaptiveManifestFetcherOptions extends DelegatedManifestFetcherOptions {
+  /** Manifest fetcher used when the batch fits within one direct subrequest. */
+  fetchManifest?: FetchPackageManifest
 }
 
 export type ManifestBackendSelector = (
@@ -46,6 +52,24 @@ export function createLocalManifestBatchFetcher(
 export const fetchPackageManifests = createLocalManifestBatchFetcher();
 
 /**
+ * Fetches a single package directly and delegates larger batches.
+ */
+export function createAdaptiveManifestBatchFetcher(
+  options: AdaptiveManifestFetcherOptions
+): FetchPackageManifests {
+  const fetchLocal = options.fetchManifest
+    ? createLocalManifestBatchFetcher(options.fetchManifest)
+    : fetchPackageManifests;
+  const fetchDelegated = createDelegatedManifestBatchFetcher(options);
+
+  return (names, force = false) => (
+    names.length <= 1
+      ? fetchLocal(names, force)
+      : fetchDelegated(names, force)
+  );
+}
+
+/**
  * Delegated batch fetcher. Every non-empty package batch consumes exactly one
  * subrequest to a selected backend, regardless of its package count.
  */
@@ -53,7 +77,13 @@ export function createDelegatedManifestBatchFetcher(
   options: DelegatedManifestFetcherOptions
 ): FetchPackageManifests {
   const fetchImpl = options.fetch ?? fetch;
-  const backends = options.backends.filter(Boolean);
+  const backends = options.backends.reduce<string[]>((result, value) => {
+    const backend = value.trim();
+    if (backend) {
+      result.push(withoutTrailingSlash(backend, true));
+    }
+    return result;
+  }, []);
   let backendIndex = backends.length > 0
     ? Math.floor(Math.random() * backends.length)
     : 0;

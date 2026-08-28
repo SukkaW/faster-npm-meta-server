@@ -6,7 +6,7 @@ declare const __FETCHER_BACKENDS__: string[];
 declare const __FETCHER_TOKEN__: string;
 
 const app = createApp({
-  mode: AppMode.Delegate,
+  mode: AppMode.Adaptive,
   backends: typeof __FETCHER_BACKENDS__ === 'object'
     ? __FETCHER_BACKENDS__
     : [],

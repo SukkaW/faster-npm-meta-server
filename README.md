@@ -57,9 +57,10 @@ Query parameters:
 
 ## Deployment
 
-You can deploy `faster-npm-meta-server` in `Local` or `Delegate` mode:
+You can deploy `faster-npm-meta-server` in `Local`, `Adaptive`, or `Delegate` mode:
 
 - `Local` mode: you run a single self-contained serverless service that connects to npm registry directly.
+- `Adaptive` mode: single-package requests connect to npm registry directly, while package batches use a pool of manifest-fetcher backends.
 - `Delegate` mode: you run a public-facing service, and instead of connecting to npm registry directly, it connects to a pool of manifest-fetcher backends and delegates all npm metadata fetch requests to a pool of backends. This architecture allows you to fan out npm metadata requests to multiple backends.
 
 ### Local mode
@@ -83,6 +84,32 @@ const explicitLocal = createApp({ mode: AppMode.Local });
 
 The tradeoff is that npm registry requests count against the public-facing runtime's own subrequest allowance.
 
+### Adaptive mode
+
+Adaptive mode combines direct registry access with a fetcher backend pool:
+
+```text
+Single package: Client → faster-npm-meta frontend → npm registry
+Package batch:  Client → faster-npm-meta frontend → fetcher backend pool → npm registry
+```
+
+This is the recommended deployment for Cloudflare Snippets. It keeps a single-package request self-contained and uses one backend subrequest for a package batch. Build and deploy `dist/snippet.js` for this mode.
+
+Adaptive mode requires at least one backend URL to serve package batches:
+
+```ts
+import { AppMode, createApp } from './src/app';
+
+const app = createApp({
+  mode: AppMode.Adaptive,
+  backends: [
+    'https://fetcher-a.example.com/manifests',
+    'https://fetcher-b.example.com/manifests'
+  ],
+  backendToken: 'shared-secret'
+});
+```
+
 ### Delegate mode
 
 Delegate mode separates the public API from registry access:
@@ -96,7 +123,7 @@ Delegate mode requires at least one backend URL. Multiple URLs form a pool, allo
 ```ts
 import { AppMode, createApp } from './src/app';
 
-const snippet = createApp({
+const app = createApp({
   mode: AppMode.Delegate,
   backends: [
     'https://fetcher-a.example.com/manifests',
@@ -106,7 +133,7 @@ const snippet = createApp({
 });
 ```
 
-The fetcher backend is a private architectural component of Delegate mode that implements the manifest backend protocol:
+The fetcher backend is a private architectural component of Adaptive and Delegate modes that implements the manifest backend protocol:
 
 ```http
 POST /manifests

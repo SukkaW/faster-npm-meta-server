@@ -1,8 +1,11 @@
 import { expect, mockFn } from 'earl';
 import { describe, it } from 'mocha';
-import type { PackageManifest } from '../types';
+import type { FetchPackageManifest, PackageManifest } from '../types';
 import { HttpError } from '../errors';
-import { createDelegatedManifestBatchFetcher } from './batch';
+import {
+  createAdaptiveManifestBatchFetcher,
+  createDelegatedManifestBatchFetcher
+} from './batch';
 
 function createManifest(name: string): PackageManifest {
   return {
@@ -14,6 +17,57 @@ function createManifest(name: string): PackageManifest {
     lastSynced: 0
   };
 }
+
+describe('adaptive manifest batch fetcher', () => {
+  it('fetches a single-package batch directly', async () => {
+    const fetchManifest = mockFn<FetchPackageManifest>(name => (
+      Promise.resolve(createManifest(name))
+    ));
+    const fetchRemote = mockFn<typeof fetch>(() => (
+      Promise.reject(new TypeError('remote backend should not be called'))
+    ));
+    const fetchBatch = createAdaptiveManifestBatchFetcher({
+      backends: ['https://fetcher.example/manifests'],
+      fetchManifest,
+      fetch: fetchRemote
+    });
+
+    const results = await fetchBatch(['fixture'], true);
+
+    expect(results).toHaveLength(1);
+    expect(fetchManifest).toHaveBeenCalledWith('fixture', true);
+    expect(fetchRemote).not.toHaveBeenCalled();
+  });
+
+  it('delegates a multi-package batch in one request', async () => {
+    const fetchManifest = mockFn<FetchPackageManifest>(() => (
+      Promise.reject(new TypeError('registry should not be called directly'))
+    ));
+    const fetchRemote = mockFn<typeof fetch>((_input, init) => {
+      if (typeof init?.body !== 'string') {
+        throw new TypeError('Expected a JSON request body');
+      }
+      const body = JSON.parse(init.body) as { names: string[] };
+      return Promise.resolve(Response.json({
+        results: body.names.map(name => ({
+          name,
+          manifest: createManifest(name)
+        }))
+      }));
+    });
+    const fetchBatch = createAdaptiveManifestBatchFetcher({
+      backends: ['https://fetcher.example/manifests'],
+      fetchManifest,
+      fetch: fetchRemote
+    });
+
+    const results = await fetchBatch(['first', 'second']);
+
+    expect(results).toHaveLength(2);
+    expect(fetchManifest).not.toHaveBeenCalled();
+    expect(fetchRemote).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('delegated manifest batch fetcher', () => {
   it('delegates a single-package batch and forwards force', async () => {
@@ -67,7 +121,8 @@ describe('delegated manifest batch fetcher', () => {
     const fetchBatch = createDelegatedManifestBatchFetcher({
       backends: [
         'https://fetcher-a.example/manifests',
-        'https://fetcher-b.example/manifests'
+        '  ',
+        ' https://fetcher-b.example/manifests/ '
       ],
       token: 'secret',
       fetch: fetchRemote,
