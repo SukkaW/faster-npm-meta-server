@@ -96,6 +96,25 @@ describe('Hono API upstream parity', () => {
     expect(response.headers.get('cache-control')).toEqual(CACHEABLE_INDEX);
   });
 
+  it('passes well-known routes through unchanged', async () => {
+    const fetchUpstream = mockFn<typeof fetch>((request) => {
+      if (typeof request === 'string' || request instanceof URL) {
+        throw new TypeError('Expected the original Request');
+      }
+      return Promise.resolve(new Response(request.url));
+    });
+    const app = createApp({ fetch: fetchUpstream });
+    const rootRequest = new Request('http://localhost/.well-known');
+    const childRequest = new Request(
+      'http://localhost/.well-known/acme-challenge/token?verification=true'
+    );
+
+    expect(await (await app.fetch(rootRequest)).text()).toEqual(rootRequest.url);
+    expect(await (await app.fetch(childRequest)).text()).toEqual(childRequest.url);
+    expect(fetchUpstream).toHaveBeenCalledWith(rootRequest);
+    expect(fetchUpstream).toHaveBeenCalledWith(childRequest);
+  });
+
   it('sets an edge-cacheable Cache-Control so a CDN can front the Worker', async () => {
     const { app } = setup();
 

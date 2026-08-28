@@ -43,7 +43,7 @@ export interface AppOptions {
   backends?: readonly string[],
   /** Optional bearer token shared with manifest backends. */
   backendToken?: string,
-  /** Injectable outbound fetch used for delegated backend requests. */
+  /** Injectable outbound fetch used for passthrough and backend requests. */
   fetch?: typeof fetch,
   selectBackend?: ManifestBackendSelector,
   /** Compatibility adapter for callers that fetch one manifest at a time. */
@@ -127,6 +127,11 @@ function packagesRoute(
 export function createApp(options: AppOptions = {}): App {
   const fetchManifests = options.fetchManifests
     ?? createAppManifestFetcher(options);
+  const fetchImpl = options.fetch ?? fetch;
+  const passthrough = async (request: Request): Promise<Response> => {
+    const response = await fetchImpl(request);
+    return new Response(response.body, response);
+  };
   const deployTime = options.deployTime ?? new Date().toISOString();
   const deployRevision = options.deployRevision ?? 'development';
 
@@ -159,6 +164,8 @@ export function createApp(options: AppOptions = {}): App {
     }, {
       headers: { 'cache-control': CACHEABLE_INDEX }
     }))
+    .route('/.well-known', passthrough)
+    .route('/.well-known/*', passthrough)
     .route('/versions/*', packagesRoute(
       '/versions/',
       fetchManifests,

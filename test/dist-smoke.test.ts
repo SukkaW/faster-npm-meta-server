@@ -51,6 +51,11 @@ function createManifest(name: string) {
 
 function mockRegistry(request: MiniflareRequest): MiniflareResponse {
   const url = new URL(request.url);
+  if (url.pathname === '/.well-known' || url.pathname.startsWith('/.well-known/')) {
+    return new MiniflareResponse(`${url.pathname}${url.search}`, {
+      headers: { 'x-well-known-upstream': 'true' }
+    });
+  }
   if (url.hostname === 'registry.npmjs.org') {
     const name = decodeURIComponent(url.pathname.slice(1));
     if (name === 'fixture') {
@@ -71,6 +76,9 @@ async function mockSnippetOutbound(
   request: MiniflareRequest
 ): Promise<MiniflareResponse> {
   const url = new URL(request.url);
+  if (url.pathname === '/.well-known' || url.pathname.startsWith('/.well-known/')) {
+    return mockRegistry(request);
+  }
   if (url.hostname === 'registry.npmjs.org') {
     snippetRegistryRequests++;
     return mockRegistry(request);
@@ -141,6 +149,23 @@ describe('built worker bundle in workerd', function () {
     const response = await mf.dispatchFetch('http://localhost/');
     expect(response.status).toEqual(200);
     expect(await response.json() as object).toHaveSubset({ name: SERVICE_NAME });
+  });
+
+  it('passes well-known requests through every bundle', async () => {
+    const path = '/.well-known/acme-challenge/token?verification=true';
+    const responses = await Promise.all([
+      mf.dispatchFetch(`http://localhost${path}`),
+      snippetMf.dispatchFetch(`http://localhost${path}`),
+      fetcherMf.dispatchFetch(`http://localhost${path}`)
+    ]);
+    const bodies = await Promise.all(responses.map(response => response.text()));
+
+    for (let index = 0, len = responses.length; index < len; index++) {
+      const response = responses[index];
+      expect(response.status).toEqual(200);
+      expect(response.headers.get('x-well-known-upstream')).toEqual('true');
+      expect(bodies[index]).toEqual(path);
+    }
   });
 
   it('resolves packages through the real bundle', async () => {
