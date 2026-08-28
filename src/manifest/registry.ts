@@ -8,14 +8,14 @@ import {
   MANIFEST_CACHE_TTL,
   REGISTRY_URL,
   REGISTRY_USER_AGENT
-} from './constants';
-import { HttpError, toPackageError } from './errors';
+} from '../constants';
+import { HttpError, toPackageError } from '../errors';
 import type {
   FetchPackageManifest,
   PackageManifest,
   PackageManifestError,
   PackageVersionMeta
-} from './types';
+} from '../types';
 
 interface PackumentVersion {
   name: string,

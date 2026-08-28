@@ -1,8 +1,8 @@
 import { expect, mockFn } from 'earl';
 import { afterEach, describe, it } from 'mocha';
 import sinon from 'sinon';
-import { REGISTRY_USER_AGENT } from './constants';
-import { HttpError } from './errors';
+import { REGISTRY_USER_AGENT } from '../constants';
+import { HttpError } from '../errors';
 import { createManifestFetcher } from './registry';
 
 interface TestRequestInit extends RequestInit<RequestInitCfProperties> {

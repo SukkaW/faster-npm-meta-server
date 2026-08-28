@@ -1,8 +1,8 @@
 # faster-npm-meta-server
 
-A re-implementation of [antfu/fast-npm-meta](https://github.com/antfu/fast-npm-meta)'s server that is tiny, lightweight, fast, and simple enough to run in Cloudflare Workers without any bindings (KV, D1, etc).
+A re-implementation of [antfu/fast-npm-meta](https://github.com/antfu/fast-npm-meta)'s server that is tiny, lightweight, fast, and simple enough to run in Cloudflare Workers without any storage bindings (KV, D1, etc). It can also run as a Cloudflare Snippet backed by a pool of manifest-fetcher services.
 
-The entire server builds into a single self-contained ~22 KiB bundle.
+The build produces three self-contained bundles: a normal Worker, a Snippet front end, and a small manifest-fetcher backend.
 
 It is a drop-in replacement for the upstream server: same routes, same response shapes, same error format (including the same error JSON format with `h3/nitro` for best compatibility), so the official [`fast-npm-meta`](https://www.npmjs.com/package/fast-npm-meta) npm client works unchanged — just point its `apiEndpoint` at your deployment.
 
@@ -55,21 +55,115 @@ Query parameters:
 | `force=true`    | all                  | shorten the server-side cache window (30 s instead of 15 min) |
 | `throw=false`   | all                  | return per-package error objects instead of an HTTP error     |
 
-## How it differs from upstream
+## Deployment
 
-The upstream server is a Nitro app (h3, `unstorage`, `ofetch`, `npm-package-arg`, `semver`/`verkit`) targeting Netlify Edge. This implementation keeps the observable behavior while replacing the stack with Workers-friendly, dependency-light equivalents:
+You can deploy `faster-npm-meta-server` in `Local` or `Delegate` mode:
 
-- An extremely fast and tiny router and middleware engine [lemmih](https://github.com/insel-null/lemmih) and an extremely tiny CORS implementation [cors-edge](https://github.com/SukkaW/cors-edge) replacing the Nitro/h3.
-- An in-repo, pure re-implementation of the `npm-package-arg` registry subset ([`src/package-arg.ts`](src/package-arg.ts)) with npa's exact error messages — dropping `npm-package-arg` and removes its `node:os` / `node:path` / `hosted-git-info` baggage that cannot run on Cloudflare Workers.
-- Caching relies on an in-memory LRU (Cloudflare Workers may persist across invocations if the instance is kept warm) plus the Cloudflare edge CDN cache via `cf` fetch options, with in-flight request deduplication and a single retry on transient registry failures (matching `ofetch`).
+- `Local` mode: you run a single self-contained serverless service that connects to npm registry directly.
+- `Delegate` mode: you run a public-facing service, and instead of connecting to npm registry directly, it connects to a pool of manifest-fetcher backends and delegates all npm metadata fetch requests to a pool of backends. This architecture allows you to fan out npm metadata requests to multiple backends.
+
+### Local mode
+
+Local mode uses a single public-facing service:
+
+```text
+Client → faster-npm-meta → npm registry
+```
+
+This is the default mode and the recommended deployment for Cloudflare Workers or any runtime whose subrequest allowance can accommodate package batches. It has the fewest components to deploy and operate.
+
+Build and deploy `dist/worker.js`. Programmatic users may select the mode explicitly, although `createApp()` already defaults to it:
+
+```ts
+import { AppMode, createApp } from './src/app';
+
+const implicitLocal = createApp();
+const explicitLocal = createApp({ mode: AppMode.Local });
+```
+
+The tradeoff is that npm registry requests count against the public-facing runtime's own subrequest allowance.
+
+### Delegate mode
+
+Delegate mode separates the public API from registry access:
+
+```text
+Client → faster-npm-meta "frontend" → fetcher backend pool → npm registry
+```
+
+Delegate mode requires at least one backend URL. Multiple URLs form a pool, allowing registry traffic to be distributed across many service providers.
+
+```ts
+import { AppMode, createApp } from './src/app';
+
+const snippet = createApp({
+  mode: AppMode.Delegate,
+  backends: [
+    'https://fetcher-a.example.com/manifests',
+    'https://fetcher-b.example.com/manifests'
+  ],
+  backendToken: 'shared-secret'
+});
+```
+
+The fetcher backend is a private architectural component of Delegate mode that implements the manifest backend protocol:
+
+```http
+POST /manifests
+Authorization: Bearer shared-secret
+Content-Type: application/json
+
+{"names":["vite","@antfu/utils"],"force":false}
+```
+
+```json
+{
+  "results": [
+    {
+      "name": "vite",
+      "manifest": {
+        "name": "vite",
+        "distTags": { "latest": "7.0.0" },
+        "versionsMeta": {
+          "7.0.0": { "time": "2025-06-24T00:00:00.000Z" }
+        },
+        "timeCreated": "2020-04-21T00:00:00.000Z",
+        "timeModified": "2025-06-24T00:00:00.000Z",
+        "lastSynced": 1750723200000
+      }
+    },
+    { "name": "@antfu/utils", "status": 404, "error": "..." }
+  ]
+}
+```
+
+Authentication is optional:
+
+- To run without authentication, leave both `MANIFEST_BACKEND_TOKEN` and `FETCHER_TOKEN` unset.
+- To enable authentication, set `MANIFEST_BACKEND_TOKEN` on every fetcher and build the Snippet with the same value in `FETCHER_TOKEN`.
+
+If the values do not match, delegated requests fail. An unauthenticated fetcher is publicly callable unless access is restricted elsewhere.
 
 ## Development
 
+Source layout:
+
+```text
+src/
+├── entrypoints/  # worker.ts, snippet.ts, fetcher.ts → dist/*.js
+├── manifest/     # registry access, batch strategies, backend protocol
+└── *.ts          # shared HTTP routing, package parsing, and result shaping
+```
+
 ```bash
-pnpm dev            # wrangler dev against src/
-pnpm build          # rollup -> dist/snippet.js (single-file ESM worker)
+pnpm dev            # wrangler dev against src/entrypoints/worker.ts
+pnpm build          # build worker, snippet, and fetcher bundles
+pnpm build:worker   # dist/worker.js
+pnpm build:snippet  # dist/snippet.js (uses FETCHER_BACKENDS/FETCHER_TOKEN)
+pnpm build:fetcher  # dist/fetcher.js
 pnpm build:analyze  # build + bundle size breakdown (stats.html)
 pnpm deploy         # build + wrangler deploy
+pnpm deploy:fetcher # build + deploy the manifest backend
 pnpm lint
 pnpm typecheck
 ```

@@ -1,5 +1,5 @@
-name = "faster-npm-meta-server"
-main = "dist/worker.js"
+name = "faster-npm-meta-fetcher"
+main = "dist/fetcher.js"
 compatibility_date = "2025-03-28"
 
 [cache]

@@ -8,7 +8,7 @@ import { CACHEABLE, NO_STORE } from '../src/cache-control';
 import { SERVICE_NAME } from '../src/constants';
 
 /**
- * Boots the built dist/snippet.js in workerd (via miniflare) with the npm
+ * Boots the built dist/worker.js in workerd (via miniflare) with the npm
  * registry mocked at the outbound-fetch boundary. This is the layer that
  * catches bundling and runtime problems unit tests cannot see: unresolved
  * requires turned into `createRequire` (no import.meta.url in workerd),
@@ -29,6 +29,26 @@ const packument = {
   }
 };
 
+function createManifest(name: string) {
+  return {
+    name,
+    distTags: packument['dist-tags'],
+    versionsMeta: {
+      '1.0.0': {
+        time: packument.time['1.0.0'],
+        engines: packument.versions['1.0.0'].engines
+      },
+      '2.0.0': {
+        time: packument.time['2.0.0'],
+        integrity: packument.versions['2.0.0'].dist.integrity
+      }
+    },
+    timeCreated: packument.time.created,
+    timeModified: packument.time.modified,
+    lastSynced: Date.now()
+  };
+}
+
 function mockRegistry(request: MiniflareRequest): MiniflareResponse {
   const url = new URL(request.url);
   if (url.hostname === 'registry.npmjs.org') {
@@ -43,27 +63,79 @@ function mockRegistry(request: MiniflareRequest): MiniflareResponse {
   return new MiniflareResponse(null, { status: 502 });
 }
 
+let snippetRegistryRequests = 0;
+let snippetBackendRequests = 0;
+let snippetBackendAuthorization: string | null = null;
+
+async function mockSnippetOutbound(
+  request: MiniflareRequest
+): Promise<MiniflareResponse> {
+  const url = new URL(request.url);
+  if (url.hostname === 'registry.npmjs.org') {
+    snippetRegistryRequests++;
+    return mockRegistry(request);
+  }
+  if (url.hostname === 'fetcher.example') {
+    snippetBackendRequests++;
+    snippetBackendAuthorization = request.headers.get('authorization');
+    const body = await request.json() as { names: string[] };
+    return new MiniflareResponse(JSON.stringify({
+      results: body.names.map(name => ({
+        name,
+        manifest: createManifest(name)
+      }))
+    }), {
+      headers: { 'content-type': 'application/json' }
+    });
+  }
+  return new MiniflareResponse(null, { status: 502 });
+}
+
 describe('built worker bundle in workerd', function () {
   this.timeout(120000);
 
   let mf: Miniflare;
+  let snippetMf: Miniflare;
+  let fetcherMf: Miniflare;
 
   before(() => {
     execFileSync('pnpm', ['run', 'build'], {
       cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        FETCHER_BACKENDS: 'https://fetcher.example/manifests',
+        FETCHER_TOKEN: 'test-token'
+      },
       stdio: 'ignore'
     });
 
     mf = new Miniflare({
-      scriptPath: 'dist/snippet.js',
+      scriptPath: 'dist/worker.js',
       modules: true,
       // keep in sync with wrangler.toml
       compatibilityDate: '2025-03-28',
       outboundService: mockRegistry
     });
+    snippetMf = new Miniflare({
+      scriptPath: 'dist/snippet.js',
+      modules: true,
+      compatibilityDate: '2025-03-28',
+      outboundService: mockSnippetOutbound
+    });
+    fetcherMf = new Miniflare({
+      scriptPath: 'dist/fetcher.js',
+      modules: true,
+      compatibilityDate: '2025-03-28',
+      bindings: { MANIFEST_BACKEND_TOKEN: 'test-token' },
+      outboundService: mockRegistry
+    });
   });
 
-  after(() => mf.dispose());
+  after(() => Promise.all([
+    mf.dispose(),
+    snippetMf.dispose(),
+    fetcherMf.dispose()
+  ]));
 
   it('boots and serves the root route', async () => {
     const response = await mf.dispatchFetch('http://localhost/');
@@ -110,5 +182,51 @@ describe('built worker bundle in workerd', function () {
     const result = await response.json() as Record<string, unknown>;
     expect(Array.isArray(result)).toEqual(false);
     expect(result).toHaveSubset({ status: 400 });
+  });
+
+  it('delegates a single-package Snippet request in one subrequest', async () => {
+    const registryRequests = snippetRegistryRequests;
+    const backendRequests = snippetBackendRequests;
+    const response = await snippetMf.dispatchFetch('http://localhost/fixture');
+
+    expect(response.status).toEqual(200);
+    expect(snippetRegistryRequests).toEqual(registryRequests);
+    expect(snippetBackendRequests).toEqual(backendRequests + 1);
+    expect(snippetBackendAuthorization).toEqual('Bearer test-token');
+  });
+
+  it('delegates a multi-package Snippet request in one subrequest', async () => {
+    const registryRequests = snippetRegistryRequests;
+    const backendRequests = snippetBackendRequests;
+    const response = await snippetMf.dispatchFetch(
+      'http://localhost/fixture+other'
+    );
+
+    expect(response.status).toEqual(200);
+    expect(await response.json() as unknown[]).toHaveLength(2);
+    expect(snippetRegistryRequests).toEqual(registryRequests);
+    expect(snippetBackendRequests).toEqual(backendRequests + 1);
+    expect(snippetBackendAuthorization).toEqual('Bearer test-token');
+  });
+
+  it('serves authenticated batches from the fetcher bundle', async () => {
+    const response = await fetcherMf.dispatchFetch(
+      'http://localhost/manifests',
+      {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer test-token',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          names: ['fixture', 'missing'],
+          force: false
+        })
+      }
+    );
+    const body = await response.json() as { results: unknown[] };
+
+    expect(response.status).toEqual(200);
+    expect(body.results).toHaveLength(2);
   });
 });

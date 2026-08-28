@@ -11,7 +11,6 @@ import {
 } from 'verkit';
 import { HttpError } from './errors';
 import type {
-  FetchPackageManifest,
   PackageManifest,
   PackageVersionMeta,
   PackageVersionsInfo,
@@ -20,12 +19,11 @@ import type {
   ResolvedPackageVersionWithMetadata
 } from './types';
 
-export async function resolvePackageVersion(
+export function resolvePackageVersion(
   spec: ParsedSpec,
   query: QueryObject,
-  fetchManifest: FetchPackageManifest
-): Promise<ResolvedPackageVersion | ResolvedPackageVersionWithMetadata> {
-  const manifest = await fetchManifest(spec.name!, Boolean(query.force));
+  manifest: PackageManifest
+): ResolvedPackageVersion | ResolvedPackageVersionWithMetadata {
   const fetchSpec = spec.fetchSpec;
 
   let version: string | null = null;
@@ -93,12 +91,11 @@ export async function resolvePackageVersion(
   return result;
 }
 
-export async function getPackageVersions(
+export function getPackageVersions(
   spec: ParsedSpec,
   query: QueryObject,
-  fetchManifest: FetchPackageManifest
-): Promise<PackageVersionsInfo | PackageVersionsInfoWithMetadata> {
-  const manifest = await fetchManifest(spec.name!, Boolean(query.force));
+  manifest: PackageManifest
+): PackageVersionsInfo | PackageVersionsInfoWithMetadata {
   const fetchSpec = spec.fetchSpec;
   let versions = Object.keys(manifest.versionsMeta);
 
@@ -198,11 +195,11 @@ export async function getPackageVersions(
 }
 
 export function getFullPackageManifest(
-  spec: ParsedSpec,
-  query: QueryObject,
-  fetchManifest: FetchPackageManifest
-): Promise<PackageManifest> {
-  return fetchManifest(spec.name!, Boolean(query.force));
+  _spec: ParsedSpec,
+  _query: QueryObject,
+  manifest: PackageManifest
+): PackageManifest {
+  return manifest;
 }
 
 function normalizeQueryDate(input: unknown): Date | undefined {

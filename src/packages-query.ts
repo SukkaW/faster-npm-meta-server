@@ -3,7 +3,10 @@ import { HttpError, toPackageError } from './errors';
 import type { ParsedSpec } from './package-arg';
 import { parsePackageArg as parsePackage } from './package-arg';
 import type {
+  FetchPackageManifests,
+  ManifestFetchResult,
   MaybeError,
+  PackageManifest,
   PackageError
 } from './types';
 
@@ -14,12 +17,14 @@ const WHITESPACE_RE = /\s+/g;
 
 type PackageHandler<T extends object> = (
   spec: ParsedSpec,
-  query: QueryObject
-) => Promise<T>;
+  query: QueryObject,
+  manifest: PackageManifest
+) => Promise<T> | T;
 
 export async function handlePackagesQuery<T extends object>(
   raw: string,
   query: QueryObject,
+  fetchManifests: FetchPackageManifests,
   handler: PackageHandler<T>
 ): Promise<MaybeError<T> | Array<MaybeError<T>>> {
   const throwError = query.throw !== 'false' && query.throw !== false;
@@ -70,19 +75,64 @@ export async function handlePackagesQuery<T extends object>(
   }
 
   if (validSpecs.length > 0) {
+    const names: string[] = [];
+    const seenNames = new Set<string>();
+    for (let index = 0, len = validSpecs.length; index < len; index++) {
+      const name = validSpecs[index][1].name!;
+      if (!seenNames.has(name)) {
+        seenNames.add(name);
+        names.push(name);
+      }
+    }
+
+    let fetched: ManifestFetchResult[];
+    try {
+      fetched = await fetchManifests(names, Boolean(query.force));
+    } catch (error) {
+      fetched = names.map(name => toPackageError(error, name));
+    }
+
+    const manifests = new Map<string, ManifestFetchResult>();
+    for (let index = 0, len = fetched.length; index < len; index++) {
+      const result = fetched[index];
+      if (seenNames.has(result.name) && !manifests.has(result.name)) {
+        manifests.set(result.name, result);
+      }
+    }
+
     const promises: Array<Promise<void>> = [];
     promises.length = validSpecs.length;
 
     for (let index = 0, len = validSpecs.length; index < len; index++) {
       const [resultIndex, parsedSpec] = validSpecs[index];
       promises[index] = (async () => {
-        await handler(parsedSpec, query)
-          .then((result) => {
-            results[resultIndex] = result;
-          })
-          .catch((error: unknown) => {
-            results[resultIndex] = toPackageError(error, parsedSpec.raw);
-          });
+        const fetchedManifest = manifests.get(parsedSpec.name!);
+        if (!fetchedManifest) {
+          results[resultIndex] = {
+            status: 502,
+            name: parsedSpec.raw,
+            error: `Manifest batch did not return package ${parsedSpec.name}`
+          };
+          return;
+        }
+        if ('error' in fetchedManifest) {
+          results[resultIndex] = {
+            status: fetchedManifest.status,
+            name: parsedSpec.raw,
+            error: fetchedManifest.error
+          };
+          return;
+        }
+
+        try {
+          results[resultIndex] = await handler(
+            parsedSpec,
+            query,
+            fetchedManifest.manifest
+          );
+        } catch (error) {
+          results[resultIndex] = toPackageError(error, parsedSpec.raw);
+        }
       })();
     }
 

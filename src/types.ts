@@ -46,6 +46,11 @@ export interface PackageManifestError extends PackageError {
   lastSynced: number
 }
 
+export type ManifestFetchResult = {
+  name: string,
+  manifest: PackageManifest
+} | PackageError;
+
 export interface ResolvedPackageVersion {
   name: string,
   version: string | null,
@@ -57,3 +62,8 @@ export interface ResolvedPackageVersion {
 export interface ResolvedPackageVersionWithMetadata extends ResolvedPackageVersion, PackageVersionMeta {}
 
 export type FetchPackageManifest = (name: string, force?: boolean) => Promise<PackageManifest>;
+
+export type FetchPackageManifests = (
+  names: readonly string[],
+  force?: boolean
+) => Promise<ManifestFetchResult[]>;

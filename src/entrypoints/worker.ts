@@ -1,4 +1,4 @@
-import { createApp } from './app';
+import { createApp } from '../app';
 
 declare const __DEPLOY_REVISION__: string;
 declare const __DEPLOY_TIME__: string;

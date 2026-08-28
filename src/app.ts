@@ -19,15 +19,41 @@ import {
   getPackageVersions,
   resolvePackageVersion
 } from './handlers';
+import {
+  createDelegatedManifestBatchFetcher,
+  createLocalManifestBatchFetcher,
+  fetchPackageManifests
+} from './manifest/batch';
+import type { ManifestBackendSelector } from './manifest/batch';
 import type { ParsedSpec } from './package-arg';
 import { handlePackagesQuery } from './packages-query';
-import { fetchPackageManifest } from './registry';
-import type { FetchPackageManifest } from './types';
+import type {
+  FetchPackageManifest,
+  FetchPackageManifests,
+  PackageManifest
+} from './types';
 
 export interface AppOptions {
   deployRevision?: string,
   deployTime?: string,
-  fetchManifest?: FetchPackageManifest
+  /** Defaults to Local, which fans out directly from a Cloudflare Worker. */
+  mode?: AppMode,
+  /** Manifest batch endpoint URLs used in Delegate mode. */
+  backends?: readonly string[],
+  /** Optional bearer token shared with manifest backends. */
+  backendToken?: string,
+  /** Injectable outbound fetch used for delegated backend requests. */
+  fetch?: typeof fetch,
+  selectBackend?: ManifestBackendSelector,
+  /** Compatibility adapter for callers that fetch one manifest at a time. */
+  fetchManifest?: FetchPackageManifest,
+  /** Lower-level override for custom batch providers and tests. */
+  fetchManifests?: FetchPackageManifests
+}
+
+export enum AppMode {
+  Local = 'local',
+  Delegate = 'delegate'
 }
 
 // mirrors the h3/nitro error JSON shape the official fast-npm-meta client
@@ -72,7 +98,12 @@ function isForced(request: Request): boolean {
 
 function packagesRoute(
   prefix: string,
-  handler: (spec: ParsedSpec, query: QueryObject) => Promise<object>
+  fetchManifests: FetchPackageManifests,
+  handler: (
+    spec: ParsedSpec,
+    query: QueryObject,
+    manifest: PackageManifest
+  ) => Promise<object> | object
 ): Handler<Record<never, never>> {
   return async (request) => {
     const url = new URL(request.url);
@@ -80,6 +111,7 @@ function packagesRoute(
     const results = await handlePackagesQuery(
       url.pathname.slice(prefix.length),
       query,
+      fetchManifests,
       handler
     );
     return res.json(results, {
@@ -91,7 +123,8 @@ function packagesRoute(
 }
 
 export function createApp(options: AppOptions = {}): App {
-  const fetchManifest = options.fetchManifest ?? fetchPackageManifest;
+  const fetchManifests = options.fetchManifests
+    ?? createAppManifestFetcher(options);
   const deployTime = options.deployTime ?? new Date().toISOString();
   const deployRevision = options.deployRevision ?? 'development';
 
@@ -101,7 +134,8 @@ export function createApp(options: AppOptions = {}): App {
 
   const resolveRoute = packagesRoute(
     '/',
-    (spec, query) => resolvePackageVersion(spec, query, fetchManifest)
+    fetchManifests,
+    resolvePackageVersion
   );
 
   return new App()
@@ -125,17 +159,33 @@ export function createApp(options: AppOptions = {}): App {
     }))
     .route('/versions/*', packagesRoute(
       '/versions/',
-      (spec, query) => getPackageVersions(spec, query, fetchManifest)
+      fetchManifests,
+      getPackageVersions
     ))
     .route('/full/*', packagesRoute(
       '/full/',
-      (spec, query) => getFullPackageManifest(spec, query, fetchManifest)
+      fetchManifests,
+      getFullPackageManifest
     ))
     .route('/*', resolveRoute)
     // lemmih's trie does not backtrack, so bare /versions and /full need
     // explicit routes to keep resolving as npm package names like upstream
     .route('/versions', resolveRoute)
     .route('/full', resolveRoute);
+}
+
+function createAppManifestFetcher(options: AppOptions): FetchPackageManifests {
+  if (options.mode === AppMode.Delegate) {
+    return createDelegatedManifestBatchFetcher({
+      backends: options.backends ?? [],
+      token: options.backendToken,
+      fetch: options.fetch,
+      selectBackend: options.selectBackend
+    });
+  }
+  return options.fetchManifest
+    ? createLocalManifestBatchFetcher(options.fetchManifest)
+    : fetchPackageManifests;
 }
 
 // Response.json() throws on null-body statuses (204/304) and statuses

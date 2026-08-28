@@ -7,90 +7,132 @@ import replace from '@rollup/plugin-replace';
 import { analyzer, adapter } from 'vite-bundle-analyzer';
 import path from 'node:path';
 import { bytes } from 'xbits';
-import type { OutputChunk } from 'rollup';
+import type { OutputChunk, RollupOptions } from 'rollup';
 import { execFileSync } from 'node:child_process';
 
 const deployRevision = process.env.GITHUB_SHA || process.env.CF_PAGES_COMMIT_SHA || getGitRevision();
 const deployTime = new Date().toISOString();
+const fetcherBackends: string[] = [];
+const rawFetcherBackends = (process.env.FETCHER_BACKENDS ?? '').split(',');
+for (let index = 0, len = rawFetcherBackends.length; index < len; index++) {
+  const backend = rawFetcherBackends[index].trim();
+  if (backend) {
+    fetcherBackends.push(backend);
+  }
+}
+const fetcherToken = process.env.FETCHER_TOKEN ?? '';
+const buildTarget = process.env.BUILD_TARGET;
 
-export default defineConfig({
-  input: 'src/index.ts',
-  output: {
-    file: 'dist/snippet.js',
-    format: 'esm',
-    compact: true
+const builds: Array<{ target: string, config: RollupOptions }> = [
+  {
+    target: 'worker',
+    config: createBuild('src/entrypoints/worker.ts', 'dist/worker.js', true)
   },
-  treeshake: 'smallest',
-  plugins: [
-    replace({
-      preventAssignment: true,
-      values: {
-        __DEPLOY_REVISION__: JSON.stringify(deployRevision),
-        __DEPLOY_TIME__: JSON.stringify(deployTime)
-      }
-    }),
-    commonjs({
-      sourceMap: false,
-      esmExternals: true
-    }),
-    oxcResolve({
-      conditionNames: ['import', 'module', 'default', 'require']
-    }),
-    json({
-      compact: true,
-      preferConst: true
-    }),
-    swc({
-      minify: false,
-      sourceMaps: process.env.ANALYZE === 'true',
-      jsc: {
-        minify: {
-          sourceMap: process.env.ANALYZE === 'true',
-          compress: {
-            unsafe: true,
-            ecma: 2022,
-            keep_infinity: true,
-            passes: 3,
-            reduce_funcs: false, // disable this can improve performance
-            module: true,
-            toplevel: true,
-            hoist_funs: true,
-            unsafe_hoist_static_method_alias: false,
-            unsafe_hoist_global_objects_alias: true
-          },
-          mangle: {
-            safari10: false,
-            topLevel: true
-          },
-          format: {
-            safari10: false,
-            // asciiOnly: true,
-            ecma: 2024
+  {
+    target: 'snippet',
+    config: createBuild('src/entrypoints/snippet.ts', 'dist/snippet.js')
+  },
+  {
+    target: 'fetcher',
+    config: createBuild('src/entrypoints/fetcher.ts', 'dist/fetcher.js')
+  }
+];
+
+const selectedBuilds: RollupOptions[] = [];
+for (let index = 0, len = builds.length; index < len; index++) {
+  if (!buildTarget || builds[index].target === buildTarget) {
+    selectedBuilds.push(builds[index].config);
+  }
+}
+
+export default defineConfig(selectedBuilds);
+
+function createBuild(
+  input: string,
+  file: string,
+  analyze = false
+): RollupOptions {
+  return {
+    input,
+    output: {
+      file,
+      format: 'esm',
+      compact: true
+    },
+    treeshake: 'smallest',
+    plugins: [
+      replace({
+        preventAssignment: true,
+        values: {
+          __DEPLOY_REVISION__: JSON.stringify(deployRevision),
+          __DEPLOY_TIME__: JSON.stringify(deployTime),
+          __FETCHER_BACKENDS__: JSON.stringify(fetcherBackends),
+          __FETCHER_TOKEN__: JSON.stringify(fetcherToken)
+        }
+      }),
+      commonjs({
+        sourceMap: false,
+        esmExternals: true
+      }),
+      oxcResolve({
+        conditionNames: ['import', 'module', 'default', 'require']
+      }),
+      json({
+        compact: true,
+        preferConst: true
+      }),
+      swc({
+        minify: false,
+        sourceMaps: process.env.ANALYZE === 'true',
+        jsc: {
+          minify: {
+            sourceMap: process.env.ANALYZE === 'true',
+            compress: {
+              unsafe: true,
+              ecma: 2022,
+              keep_infinity: true,
+              passes: 3,
+              reduce_funcs: false, // disable this can improve performance
+              module: true,
+              toplevel: true,
+              hoist_funs: true,
+              unsafe_hoist_static_method_alias: false,
+              unsafe_hoist_global_objects_alias: true
+            },
+            mangle: {
+              safari10: false,
+              topLevel: true
+            },
+            format: {
+              safari10: false,
+              // asciiOnly: true,
+              ecma: 2024
+            }
           }
         }
-      }
-    }),
-    {
-      name: 'rollup-plugin-bundle-size',
-      generateBundle(options, bundle) {
-        if (options.file) {
-          const asset = path.basename(options.file);
-          const size = bytes((bundle[asset] as OutputChunk).code.length);
-          // eslint-disable-next-line no-console -- report the generated Worker bundle size
-          console.log(`Created bundle ${asset}: ${size}`);
-        } else {
+      }),
+      {
+        name: 'rollup-plugin-bundle-size',
+        generateBundle(options, bundle) {
+          if (options.file) {
+            const asset = path.basename(options.file);
+            const size = bytes((bundle[asset] as OutputChunk).code.length);
+            // eslint-disable-next-line no-console -- report the generated Worker bundle size
+            console.log(`Created bundle ${asset}: ${size}`);
+          } else {
           // eslint-disable-next-line no-console -- report a malformed Rollup output configuration
-          console.error('No output file specified!');
+            console.error('No output file specified!');
+          }
         }
-      }
-    },
-    process.env.ANALYZE === 'true' && adapter(analyzer({
-      analyzerMode: 'static',
-      openAnalyzer: true,
-      fileName: 'stats.html'
-    }))
-  ]
-});
+      },
+      analyze && process.env.ANALYZE === 'true' && adapter(analyzer({
+        analyzerMode: 'static',
+        openAnalyzer: true,
+        fileName: 'stats.html'
+      }))
+    ]
+  };
+}
 
 function getGitRevision(): string {
   try {

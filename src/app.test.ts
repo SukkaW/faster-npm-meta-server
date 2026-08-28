@@ -1,7 +1,7 @@
 import type { App } from 'lemmih';
 import { expect, mockFn } from 'earl';
 import { describe, it } from 'mocha';
-import { createApp } from './app';
+import { AppMode, createApp } from './app';
 import {
   CACHEABLE,
   CACHEABLE_ERROR,
@@ -274,6 +274,42 @@ describe('Hono API upstream parity', () => {
 
     expect(response.status).toEqual(200);
     expect(await response.json<unknown[]>()).toHaveLength(40);
+  });
+
+  it('delegates every manifest fetch when Delegate mode is selected', async () => {
+    const fetchManifest = mockFn<FetchPackageManifest>(name => Promise.resolve({
+      ...fixture,
+      name
+    }));
+    const fetchBackend = mockFn<typeof fetch>((_input, init) => {
+      if (typeof init?.body !== 'string') {
+        throw new TypeError('Expected a JSON request body');
+      }
+      const body = JSON.parse(init.body) as { names: string[] };
+      return Promise.resolve(Response.json({
+        results: body.names.map(name => ({
+          name,
+          manifest: { ...fixture, name }
+        }))
+      }));
+    });
+    const app = createApp({
+      mode: AppMode.Delegate,
+      backends: ['https://fetcher.example/manifests'],
+      fetchManifest,
+      fetch: fetchBackend
+    });
+
+    const single = await appRequest(app, '/fixture');
+    expect(single.status).toEqual(200);
+    expect(fetchManifest).not.toHaveBeenCalled();
+    expect(fetchBackend).toHaveBeenCalledTimes(1);
+
+    const batch = await appRequest(app, '/fixture+other');
+    expect(batch.status).toEqual(200);
+    expect(await batch.json<unknown[]>()).toHaveLength(2);
+    expect(fetchManifest).not.toHaveBeenCalled();
+    expect(fetchBackend).toHaveBeenCalledTimes(2);
   });
 
   it('keeps Nitro method-agnostic routes method-agnostic in Hono', async () => {
