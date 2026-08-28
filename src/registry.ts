@@ -162,16 +162,21 @@ async function fetchAndProjectPackument(
   }
 
   const packument: Packument = await response.json();
+  const versionsMeta: Record<string, PackageVersionMeta> = {};
+  const versions = Object.keys(packument.versions);
+  for (let index = 0, len = versions.length; index < len; index++) {
+    const version = versions[index];
+    versionsMeta[version] = createPackageVersionMeta(
+      packument,
+      version,
+      packument.versions[version]
+    );
+  }
+
   return {
     name: packument.name,
     distTags: packument['dist-tags'],
-    versionsMeta: Object.entries(packument.versions).reduce<Record<string, PackageVersionMeta>>(
-      (accumulator, [version, data]) => {
-        accumulator[version] = createPackageVersionMeta(packument, version, data);
-        return accumulator;
-      },
-      {}
-    ),
+    versionsMeta,
     timeCreated: packument.time.created,
     timeModified: packument.time.modified,
     lastSynced: Date.now()

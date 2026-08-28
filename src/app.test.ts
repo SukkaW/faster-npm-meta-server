@@ -206,6 +206,14 @@ describe('Hono API upstream parity', () => {
       specifier: '^1',
       versions: ['1.0.0', '1.5.0']
     });
+    await expectJson(appRequest(app, '/versions/fixture@^1?loose=true'), {
+      specifier: '^1',
+      versions: allVersions
+    });
+    await expectJson(appRequest(app, '/versions/fixture@^4?loose=true'), {
+      specifier: '^4',
+      versions: []
+    });
     await expectJson(appRequest(app, '/versions/fixture@2.0.0'), {
       versions: allVersions
     });

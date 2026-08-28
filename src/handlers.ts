@@ -1,10 +1,13 @@
 import type { QueryObject } from 'ufo';
+import type { SemVer } from 'verkit';
 import type { ParsedSpec } from './package-arg';
 import {
   clean,
   isLess,
   isLessOrEqual,
-  satisfies
+  satisfies,
+  tryParse,
+  tryParseRange
 } from 'verkit';
 import { HttpError } from './errors';
 import type {
@@ -39,17 +42,21 @@ export async function resolvePackageVersion(
     specifier = 'latest';
   } else if (spec.type === 'range') {
     specifier = fetchSpec;
-    let maxVersion: string | null = manifest.distTags.latest;
-    if (!satisfies(maxVersion, fetchSpec)) {
-      maxVersion = null;
-    }
+    const range = tryParseRange(fetchSpec);
+    const latest = tryParse(manifest.distTags.latest);
+    const maxVersion = range && latest && satisfies(latest, range)
+      ? latest
+      : null;
 
     const versions = Object.keys(manifest.versionsMeta);
     for (let index = 0, len = versions.length; index < len; index++) {
       const candidate = versions[index];
+      const parsedCandidate = tryParse(candidate);
       if (
-        satisfies(candidate, fetchSpec)
-        && (!maxVersion || isLessOrEqual(candidate, maxVersion))
+        range
+        && parsedCandidate
+        && satisfies(parsedCandidate, range)
+        && (!maxVersion || isLessOrEqual(parsedCandidate, maxVersion))
       ) {
         version = candidate;
       }
@@ -59,6 +66,7 @@ export async function resolvePackageVersion(
     version = clean(fetchSpec, { loose: true });
     specifier = fetchSpec;
 
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime lookup can miss an exact version
     if (version && !manifest.versionsMeta[version]) {
       throw new HttpError(
         `Version ${version} of package ${spec.name} not found`,
@@ -95,18 +103,42 @@ export async function getPackageVersions(
   let versions = Object.keys(manifest.versionsMeta);
 
   if (fetchSpec !== '*' && spec.type === 'range') {
-    const satisfiedVersions = versions.filter(
-      version => satisfies(version, fetchSpec)
-    );
-    if (query.loose) {
-      versions = versions.filter((version) => {
-        if (satisfiedVersions.includes(version)) {
-          return true;
+    const range = tryParseRange(fetchSpec);
+    if (!range) {
+      versions = [];
+    } else if (query.loose) {
+      const parsedVersions: Array<SemVer | null> = [];
+      const satisfiedVersions: boolean[] = [];
+      let minimumSatisfied: SemVer | null = null;
+
+      for (let index = 0, len = versions.length; index < len; index++) {
+        const parsedVersion = tryParse(versions[index]);
+        parsedVersions.push(parsedVersion);
+
+        const satisfied = Boolean(
+          parsedVersion && satisfies(parsedVersion, range)
+        );
+        satisfiedVersions.push(satisfied);
+
+        if (
+          satisfied
+          && parsedVersion
+          && (!minimumSatisfied || isLess(parsedVersion, minimumSatisfied))
+        ) {
+          minimumSatisfied = parsedVersion;
         }
-        return satisfiedVersions.some(satisfied => isLess(satisfied, version));
-      });
+      }
+
+      if (minimumSatisfied) {
+        versions = versions.filter((version, index) => (
+          satisfiedVersions[index]
+          || isLess(minimumSatisfied, parsedVersions[index] ?? version)
+        ));
+      } else {
+        versions = [];
+      }
     } else {
-      versions = satisfiedVersions;
+      versions = versions.filter(version => satisfies(version, range));
     }
   } else if (spec.type === 'tag') {
     const tag = manifest.distTags[fetchSpec];
