@@ -1,4 +1,5 @@
 import { HttpError, toPackageError } from '../errors';
+import { randomInt } from 'foxts/random-int';
 import { withoutTrailingSlash } from 'ufo';
 import { fetchPackageManifest } from './registry';
 import type {
@@ -85,7 +86,7 @@ export function createDelegatedManifestBatchFetcher(
     return result;
   }, []);
   let backendIndex = backends.length > 0
-    ? Math.floor(Math.random() * backends.length)
+    ? randomInt(0, backends.length - 1)
     : 0;
 
   return async (names, force = false) => {
