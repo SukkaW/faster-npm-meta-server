@@ -8,6 +8,8 @@ It is a drop-in replacement for the upstream server: same routes, same response 
 
 ## API
 
+You can access the example server at [https://npm.skk.moe](https://npm.skk.moe).
+
 Get the resolved version of a package:
 
 ```
